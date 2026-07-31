@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AUTO-GENERATED dirty prototype MCP server.
+AUTO-GENERATED dirty prototype test MCP server.
 Source: query catalog workbook. Regenerate with build_prototype_server.py
 rather than hand-editing tool definitions -- hand-edit the MOCK RESPONSE
 bodies in MOCKS (or replace _run_mock's body with a real query call)
