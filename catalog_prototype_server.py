@@ -24,6 +24,75 @@ MOCKS = {}
 ENTRY_META = {}
 
 
+
+_TIER_ORDER = ["Bronze", "Silver", "Gold", "Platinum"]
+_SEGMENTS = ["VIP", "New Members", "At Risk", "High Spenders", "Redeemers", "Non-Redeemers", "Purchasing Customers", "Loyalty Members"]
+
+
+def _seeded_rng(slug: str, arguments: dict):
+    import hashlib
+    import random as _random
+    key_bits = [slug] + [f"{k}={v}" for k, v in sorted(arguments.items()) if v is not None]
+    seed = int(hashlib.md5("|".join(key_bits).encode()).hexdigest(), 16)
+    return _random.Random(seed)
+
+
+def _dynamic_value(key: str, entry_name: str, rng, arguments: dict):
+    import datetime as _dt
+    k = key.lower()
+    today = _dt.date.today()
+
+    # Structured breakdowns first (most specific)
+    if "breakdown_by_tier" in k or ("breakdown" in k and "tier" in k):
+        return {t: rng.randint(20, 4000) for t in _TIER_ORDER}
+    if "breakdown_by_sub_segment" in k or "breakdown_by_segment" in k or "breakdown_by_source" in k:
+        if "origin" in entry_name.lower() or "source" in k:
+            sources = ["purchases", "referrals", "sign_up_bonus", "birthday_bonus", "campaign_bonus"]
+            return {s: rng.randint(200, 12000) for s in sources}
+        return {s: rng.randint(20, 4000) for s in _SEGMENTS}
+    if "trend" in k or "time_series" in k:
+        periods = 6
+        base = rng.randint(50, 500)
+        series = []
+        for i in range(periods):
+            d = today - _dt.timedelta(weeks=(periods - i))
+            series.append({"week_of": d.isoformat(), "value": max(0, base + rng.randint(-30, 60) * i // 3)})
+        return series
+
+    # Counts (check before generic "tier"/"segment" name matching)
+    if "count" in k or "number_of" in k or "absolute_counts" in k:
+        return rng.randint(20, 8000)
+
+    # Rates / percentages
+    if "percent" in k or "rate" in k or "lift" in k or ("share" in k and "revenue_share" in k):
+        return round(rng.uniform(2, 65), 1)
+
+    # Currency-ish
+    if "revenue" in k or "aov" in k or "average_order_value" in k or "ltv" in k or k.endswith("_value"):
+        return round(rng.uniform(200, 45000), 2)
+
+    # Dates / ranges
+    if "date_range" in k or "time_period_for_analysis" in k:
+        start = today - _dt.timedelta(days=rng.randint(30, 365))
+        return f"{start.isoformat()} to {today.isoformat()}"
+    if "date" in k:
+        return (today - _dt.timedelta(days=rng.randint(1, 300))).isoformat()
+
+    # Explicit segment/tier the user actually asked about
+    if k == "segment_name_and_definition":
+        seg = arguments.get("segment")
+        return seg if seg else rng.choice(_SEGMENTS)
+    if "tier_name" in k or k.endswith("tier"):
+        return rng.choice(_TIER_ORDER)
+
+    # Days-based
+    if "days" in k or "tenure" in k:
+        return rng.randint(1, 620)
+
+    # Fallback: a plausible number, never a placeholder string
+    return rng.randint(10, 5000)
+
+
 def _run_mock(slug: str, arguments: dict) -> str:
     """Shared body for every generated tool function below.
 
@@ -47,6 +116,18 @@ def _run_mock(slug: str, arguments: dict) -> str:
     }))
 
     payload = dict(mock)
+
+    # For Analytical entries, regenerate the numeric/structured fields
+    # based on the actual arguments (segment, tier, time_range, etc.) so
+    # different queries return different-but-consistent numbers instead
+    # of always the same static value.
+    if meta.get("class") == "Analytical":
+        rng = _seeded_rng(slug, arguments)
+        skip_keys = {"type", "entry_id", "entry_name"}
+        for key in list(payload.keys()):
+            if key in skip_keys:
+                continue
+            payload[key] = _dynamic_value(key, meta.get("name", ""), rng, arguments)
 
     # Echo the actual requested identifier back into any identity-display
     # fields, so results stay internally consistent with what was asked
