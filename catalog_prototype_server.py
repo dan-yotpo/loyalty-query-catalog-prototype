@@ -47,6 +47,25 @@ def _run_mock(slug: str, arguments: dict) -> str:
     }))
 
     payload = dict(mock)
+
+    # Echo the actual requested identifier back into any identity-display
+    # fields, so results stay internally consistent with what was asked
+    # (rather than showing a hardcoded name unrelated to the query).
+    identifier = arguments.get("customer_identifier") or arguments.get("order_identifier")
+    if identifier:
+        import hashlib
+        h = int(hashlib.md5(identifier.encode()).hexdigest(), 16)
+        first_names = ["Jane", "Marcus", "Priya", "Diego", "Aisha", "Tom", "Yuki", "Elena"]
+        last_names = ["Doe", "Chen", "Patel", "Ramirez", "Khan", "Novak", "Sato", "Kovacs"]
+        display_name = f"{first_names[h % len(first_names)]} {last_names[(h // 7) % len(last_names)]}"
+        cust_id = f"cust_{h % 90000 + 10000}"
+        identity_str = f"{display_name} ({identifier}, {cust_id})"
+        for key in ("customer_identifying_info_name_email_cus",
+                    "customer_identifier_name_email_id",
+                    "customer_id_name_email"):
+            if key in payload:
+                payload[key] = identity_str
+
     payload["_meta"] = {"source": "prototype", "entry_id": meta.get("id")}
     payload["_arguments_received"] = arguments
     return json.dumps(payload, indent=2)
